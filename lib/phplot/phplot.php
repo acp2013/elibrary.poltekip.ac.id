@@ -1,4 +1,1706 @@
-    break;
+<?php
+/* $Id: phplot.php,v 1.167 2009/12/23 22:37:47 lbayuk Exp $ */
+/*
+ * PHPLOT Version 5.1.0
+ *
+ * A PHP class for creating scientific and business charts
+ * Visit http://sourceforge.net/projects/phplot/
+ * for PHPlot documentation, downloads, and discussions.
+ * ---------------------------------------------------------------------
+ * Copyright (C) 1998-2009 Afan Ottenheimer
+ *
+ * This is free software; you can redistribute it and/or
+ * modify it under the terms of the GNU Lesser General Public
+ * License as published by the Free Software Foundation;
+ * version 2.1 of the License.
+ *
+ * This software is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * Lesser General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public
+ * License along with this software; if not, write to the Free Software
+ * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA
+ * ---------------------------------------------------------------------
+ *
+ * Co-author and maintainer (2003-2005)
+ * Miguel de Benito Delgado <nonick AT vodafone DOT es>
+ *
+ * Maintainer (2006-present)
+ * <lbayuk AT users DOT sourceforge DOT net>
+ *
+ * Requires PHP 5.2.x or later. (PHP 4 is unsupported as of Jan 2008)
+ */
+
+class PHPlot {
+
+    /* Declare class variables which are initialized to static values. Many more class variables
+     * are used, defined as needed, but are unset by default.
+     * All these are declared as public. While it is tempting to make them private or protected, this
+     * is avoided for two reasons. First, it will break existing code, since all member variables
+     * were public in PHP4 and who knows what internal variables people used. Second, it makes
+     * testing harder and less effective. Nevertheless, your code should not modify these.
+     */
+
+    public $is_inline = FALSE;             // FALSE = Sends headers, TRUE = sends just raw image data
+    public $browser_cache = FALSE;         // FALSE = Sends headers for browser to not cache the image,
+                                           // (only if is_inline = FALSE also)
+    public $print_image = TRUE;            // DrawGraph calls PrintImage. See SetPrintImage
+    public $background_done = FALSE;       // TRUE after background image is drawn once
+
+    public $safe_margin = 5;               // Extra margin used in several places, in pixels
+
+    public $x_axis_position = '';          // Where to draw both axis (world coordinates),
+    public $y_axis_position = '';          // leave blank for X axis at 0 and Y axis at left of plot.
+
+    public $xscale_type = 'linear';        // linear, log
+    public $yscale_type = 'linear';
+
+//Fonts
+    public $use_ttf  = FALSE;              // Use True Type Fonts by default?
+    public $ttf_path = '.';                // Default path to look in for TT Fonts.
+    public $default_ttfont = 'benjamingothic.ttf';
+    public $line_spacing = 4;              // Controls line spacing of multi-line labels
+
+    // Label angles: 0 or 90 degrees for fixed fonts, any for TTF
+    public $x_label_angle = 0;             // For X tick labels
+    // public $x_data_label_angle;         // For X data labels; defaults to x_label_angle - see CheckLabels()
+    public $y_label_angle = 0;             // For Y tick labels
+    public $y_data_label_angle = 0;        // For Y data labels
+
+//Formats
+    public $file_format = 'png';
+    public $output_file = '';              // For output to a file instead of stdout
+
+//Data
+    public $data_type = 'text-data';       // text-data, data-data-error, data-data, text-data-single
+    public $plot_type= 'linepoints';       // bars, lines, linepoints, area, points, pie, thinbarline, squared
+
+    public $label_scale_position = 0.5;    // Shifts data labels in pie charts. 1 = top, 0 = bottom
+    public $group_frac_width = 0.7;        // Bars use this fraction (0 to 1) of a group's space
+    public $bar_extra_space = 0.5;         // Number of extra bar's worth of space in a group
+    public $bar_width_adjust = 1;          // 1 = bars of normal width, must be > 0
+
+// Titles
+    public $title_txt = '';
+
+    public $x_title_txt = '';
+    public $x_title_pos = 'none';          // plotdown, plotup, both, none
+
+    public $y_title_txt = '';
+    public $y_title_pos = 'none';          // plotleft, plotright, both, none
+
+
+//Labels
+    // There are two types of labels in PHPlot:
+    //    Tick labels: they follow the grid, next to ticks in axis.
+    //                 they are drawn at grid drawing time, by DrawXTicks() and DrawYTicks()
+    //    Data labels: they follow the data points, and can be placed on the axis or the plot (x/y)
+    //                 they are drawn at graph plotting time, by Draw*DataLabel(), called by DrawLines(), etc.
+    //                 Draw*DataLabel() also draws H/V lines to datapoints depending on draw_*_data_label_lines
+    // Tick Labels
+    // x_tick_label_pos and x_data_label_pos are not initialized, because PHPlot needs
+    // to determine if they were defaulted or set by the user. See CheckLabels().
+    // public $x_tick_label_pos = 'plotdown';     // plotdown, plotup, both, xaxis, none
+    public $y_tick_label_pos = 'plotleft';     // plotleft, plotright, both, yaxis, none
+
+    // Data Labels:
+    // public $x_data_label_pos = 'plotdown';     // plotdown, plotup, both, plot, all, none
+    public $y_data_label_pos = 'none';        // plotleft, plotright, both, plot, all, plotin, none
+
+    public $draw_x_data_label_lines = FALSE;   // Draw a line from the data point to the axis?
+
+    // Label format controls: (for tick, data and plot labels)
+    // Unset by default, these array members are used as needed for 'x' (x tick labels), 'xd' (x data
+    // labels), 'y' (y tick labels), and 'yd' (y data labels).
+    //    type, precision, prefix, suffix, time_format, printf_format, custom_callback, custom_arg.
+    // These replace the former: x_label_type, x_time_format, x_precision (similar for y), data_units_text.
+    public $label_format = array('x' => array(), 'xd' => array(), 'y' => array(), 'yd' => array());
+    // data_units_text is retained for backward compatibility, because there was never a function
+    // to set it. Use the 'suffix' argument to Set[XY]LabelType instead.
+    public $data_units_text = '';              // Units text for 'data' labels (i.e: '�', '$', etc.)
+
+// Legend
+    public $legend = '';                       // An array with legend titles
+    // These variables are unset to take default values:
+    // public $legend_x_pos;                   // User-specified upper left coordinates of legend box
+    // public $legend_y_pos;
+    // public $legend_xy_world;                // If set, legend_x/y_pos are world coords, else pixel coords
+    // public $legend_text_align;              // left or right, Unset means right
+    // public $legend_colorbox_align;          // left, right, or none; Unset means same as text_align
+
+//Ticks
+    public $x_tick_length = 5;                 // tick length in pixels for upper/lower axis
+    public $y_tick_length = 5;                 // tick length in pixels for left/right axis
+
+    public $x_tick_cross = 3;                  // ticks cross x axis this many pixels
+    public $y_tick_cross = 3;                  // ticks cross y axis this many pixels
+
+    public $x_tick_pos = 'plotdown';           // plotdown, plotup, both, xaxis, none
+    public $y_tick_pos = 'plotleft';           // plotright, plotleft, both, yaxis, none
+
+    public $num_x_ticks = '';
+    public $num_y_ticks = '';
+
+    public $x_tick_inc = '';                   // Set num_x_ticks or x_tick_inc, not both.
+    public $y_tick_inc = '';                   // Set num_y_ticks or y_tick_inc, not both.
+
+    public $skip_top_tick = FALSE;
+    public $skip_bottom_tick = FALSE;
+    public $skip_left_tick = FALSE;
+    public $skip_right_tick = FALSE;
+
+//Grid Formatting
+    public $draw_x_grid = FALSE;
+    public $draw_y_grid = TRUE;
+
+    public $dashed_grid = TRUE;
+    public $grid_at_foreground = FALSE;        // Chooses whether to draw the grid below or above the graph
+
+//Colors and styles       (all colors can be array (R,G,B) or named color)
+    public $color_array = 'small';             // 'small', 'large' or array (define your own colors)
+                                            // See rgb.inc.php and SetRGBArray()
+    public $i_border = array(194, 194, 194);
+    public $plot_bg_color = 'white';
+    public $bg_color = 'white';
+    public $label_color = 'black';
+    public $text_color = 'black';
+    public $grid_color = 'black';
+    public $light_grid_color = 'gray';
+    public $tick_color = 'black';
+    public $title_color = 'black';
+    public $default_colors = array(       // The default colors for data and error bars
+        'SkyBlue', 'green', 'orange', 'blue', 'red', 'DarkGreen', 'purple', 'peru',
+        'cyan', 'salmon', 'SlateBlue', 'YellowGreen', 'magenta', 'aquamarine1', 'gold', 'violet');
+
+    // data_colors and error_bar_colors are initialized to default_colors by SetDefaultStyles.
+    // public $data_colors;                    // Data colors
+    // public $error_bar_colors;               // Error bar colors
+    // data_border_colors is initialized to black by SetDefaultStyles.
+    // public $data_border_colors;             // Data border colors
+
+    public $line_widths = 1;                  // single value or array
+    public $line_styles = array('solid', 'solid', 'dashed');   // single value or array
+    public $dashed_style = '2-4';              // colored dots-transparent dots
+
+    public $point_sizes = array(6);            // Array of sizes for points. See CheckPointParams()
+    public $point_shapes = array(              // Array of point shapes. See SetPointShapes() and DrawDot()
+          'diamond', 'dot', 'delta', 'home', 'yield', 'box', 'circle', 'up', 'down', 'cross'
+       );
+
+    public $error_bar_size = 5;                // right and left size of tee
+    public $error_bar_shape = 'tee';           // 'tee' or 'line'
+    public $error_bar_line_width = 1;          // single value (or array TODO)
+
+    public $plot_border_type = 'sides';        // left, sides, none, full
+    public $image_border_type = 'none';        // 'raised', 'plain', 'none'
+
+    public $shading = 5;                       // 0 for no shading, > 0 is size of shadows in pixels
+
+    public $draw_plot_area_background = FALSE;
+    public $draw_broken_lines = FALSE;          // Tells not to draw lines for missing Y data.
+
+//Miscellaneous
+    public $callbacks = array(                  // Valid callback reasons (see SetCallBack)
+        'draw_setup' => NULL,
+        'draw_image_background' => NULL,
+        'draw_plotarea_background' => NULL,
+        'draw_titles' => NULL,
+        'draw_axes' => NULL,
+        'draw_graph' => NULL,
+        'draw_border' => NULL,
+        'draw_legend' => NULL,
+        'draw_all' => NULL,
+        'debug_textbox' => NULL,  // For testing/debugging text box alignment
+        'debug_scale' => NULL,    // For testing/debugging scale setup
+    );
+
+
+//////////////////////////////////////////////////////
+//BEGIN CODE
+//////////////////////////////////////////////////////
+
+    /*!
+     * Constructor: Setup img resource, colors and size of the image, and font sizes.
+     *
+     * \param which_width       int    Image width in pixels.
+     * \param which_height      int    Image height in pixels.
+     * \param which_output_file string Filename for output.
+     * \param which_input_file  string Path to a file to be used as background.
+     */
+    function __construct($which_width=600, $which_height=400, $which_output_file=NULL, $which_input_file=NULL)
+    {
+        $this->SetRGBArray($this->color_array);
+
+        if ($which_output_file)
+            $this->SetOutputFile($which_output_file);
+
+        if ($which_input_file)
+            $this->SetInputFile($which_input_file);
+        else {
+            $this->image_width = $which_width;
+            $this->image_height = $which_height;
+
+            $this->img = ImageCreate($this->image_width, $this->image_height);
+            if (! $this->img)
+                return $this->PrintError('PHPlot(): Could not create image resource.');
+        }
+
+        $this->SetDefaultStyles();
+        $this->SetDefaultFonts();
+    }
+
+    /*!
+     * Reads an image file. Stores width and height, and returns the image
+     * resource. On error, calls PrintError and returns False.
+     * This is used by the constructor via SetInputFile, and by tile_img().
+     */
+    protected function GetImage($image_filename, &$width, &$height)
+    {
+        $error = '';
+        $size = getimagesize($image_filename);
+        if (!$size) {
+            $error = "Unable to query image file $image_filename";
+        } else {
+            $image_type = $size[2];
+            switch($image_type) {
+            case IMAGETYPE_GIF:
+                $img = @ ImageCreateFromGIF ($image_filename);
+                break;
+            case IMAGETYPE_PNG:
+                $img = @ ImageCreateFromPNG ($image_filename);
+                break;
+            case IMAGETYPE_JPEG:
+                $img = @ ImageCreateFromJPEG ($image_filename);
+                break;
+            default:
+                $error = "Unknown image type ($image_type) for image file $image_filename";
+                break;
+            }
+        }
+        if (empty($error) && !$img) {
+            # getimagesize is OK, but GD won't read it. Maybe unsupported format.
+            $error = "Failed to read image file $image_filename";
+        }
+        if (!empty($error)) {
+            return $this->PrintError("GetImage(): $error");
+        }
+        $width = $size[0];
+        $height = $size[1];
+        return $img;
+    }
+
+    /*!
+     * Selects an input file to be used as background for the whole graph.
+     * This resets the graph size to the image's size.
+     * Note: This is used by the constructor. It is deprecated for direct use.
+     */
+    function SetInputFile($which_input_file)
+    {
+        $im = $this->GetImage($which_input_file, $this->image_width, $this->image_height);
+        if (!$im)
+            return FALSE;  // GetImage already produced an error message.
+
+        // Deallocate any resources previously allocated
+        if (isset($this->img))
+            imagedestroy($this->img);
+
+        $this->img = $im;
+
+        // Do not overwrite the input file with the background color.
+        $this->background_done = TRUE;
+
+        return TRUE;
+    }
+
+/////////////////////////////////////////////
+//////////////                         COLORS
+/////////////////////////////////////////////
+
+    /*!
+     * Returns an index to a color passed in as anything (string, hex, rgb)
+     *
+     * \param which_color * Color (can be '#AABBCC', 'Colorname', or array(r,g,b))
+     * Returns a GD color index (integer >= 0), or NULL on error.
+     */
+    function SetIndexColor($which_color)
+    {
+        list ($r, $g, $b) = $this->SetRGBColor($which_color);  //Translate to RGB
+        if (!isset($r)) return NULL;
+        return ImageColorResolve($this->img, $r, $g, $b);
+    }
+
+
+    /*!
+     * Returns an index to a slightly darker color than the one requested.
+     * Returns a GD color index (integer >= 0), or NULL on error.
+     */
+    protected function SetIndexDarkColor($which_color)
+    {
+        list ($r, $g, $b) = $this->SetRGBColor($which_color);
+        if (!isset($r)) return NULL;
+        $r = max(0, $r - 0x30);
+        $g = max(0, $g - 0x30);
+        $b = max(0, $b - 0x30);
+        return ImageColorResolve($this->img, $r, $g, $b);
+    }
+
+    /*!
+     * Sets/reverts all colors and styles to their defaults.
+     */
+    protected function SetDefaultStyles()
+    {
+        /* Some of the Set*() functions use default values when they get no parameters. */
+        $this->SetDefaultDashedStyle($this->dashed_style);
+        $this->SetImageBorderColor($this->i_border);
+        $this->SetPlotBgColor($this->plot_bg_color);
+        $this->SetBackgroundColor($this->bg_color);
+        $this->SetLabelColor($this->label_color);
+        $this->SetTextColor($this->text_color);
+        $this->SetGridColor($this->grid_color);
+        $this->SetLightGridColor($this->light_grid_color);
+        $this->SetTickColor($this->tick_color);
+        $this->SetTitleColor($this->title_color);
+        $this->SetDataColors();
+        $this->SetErrorBarColors();
+        $this->SetDataBorderColors();
+        return TRUE;
+    }
+
+
+    /*
+     *
+     */
+    function SetBackgroundColor($which_color)
+    {
+        $this->bg_color= $which_color;
+        $this->ndx_bg_color= $this->SetIndexColor($this->bg_color);
+        return isset($this->ndx_bg_color);
+    }
+
+    /*
+     *
+     */
+    function SetPlotBgColor($which_color)
+    {
+        $this->plot_bg_color= $which_color;
+        $this->ndx_plot_bg_color= $this->SetIndexColor($this->plot_bg_color);
+        return isset($this->ndx_plot_bg_color);
+    }
+
+   /*
+    *
+    */
+    function SetTitleColor($which_color)
+    {
+        $this->title_color= $which_color;
+        $this->ndx_title_color= $this->SetIndexColor($this->title_color);
+        return isset($this->ndx_title_color);
+    }
+
+    /*
+     *
+     */
+    function SetTickColor ($which_color)
+    {
+        $this->tick_color= $which_color;
+        $this->ndx_tick_color= $this->SetIndexColor($this->tick_color);
+        return isset($this->ndx_tick_color);
+    }
+
+
+    /*
+     * Do not use. Use SetTitleColor instead.
+     */
+    function SetLabelColor ($which_color)
+    {
+        $this->label_color = $which_color;
+        $this->ndx_title_color= $this->SetIndexColor($this->label_color);
+        return isset($this->ndx_title_color);
+    }
+
+
+    /*
+     *
+     */
+    function SetTextColor ($which_color)
+    {
+        $this->text_color= $which_color;
+        $this->ndx_text_color= $this->SetIndexColor($this->text_color);
+        return isset($this->ndx_text_color);
+    }
+
+
+    /*
+     *
+     */
+    function SetLightGridColor ($which_color)
+    {
+        $this->light_grid_color= $which_color;
+        $this->ndx_light_grid_color= $this->SetIndexColor($this->light_grid_color);
+        return isset($this->ndx_light_grid_color);
+    }
+
+
+    /*
+     *
+     */
+    function SetGridColor ($which_color)
+    {
+        $this->grid_color = $which_color;
+        $this->ndx_grid_color= $this->SetIndexColor($this->grid_color);
+        return isset($this->ndx_grid_color);
+    }
+
+
+    /*
+     *
+     */
+    function SetImageBorderColor($which_color)
+    {
+        $this->i_border = $which_color;
+        $this->ndx_i_border = $this->SetIndexColor($this->i_border);
+        $this->ndx_i_border_dark = $this->SetIndexDarkColor($this->i_border);
+        return isset($this->ndx_i_border);
+    }
+
+
+    /*
+     *
+     */
+    function SetTransparentColor($which_color)
+    {
+        $ndx = $this->SetIndexColor($which_color);
+        if (!isset($ndx))
+            return FALSE;
+        ImageColorTransparent($this->img, $ndx);
+        return TRUE;
+    }
+
+
+    /*!
+     * Sets the array of colors to be used. It can be user defined, a small predefined one
+     * or a large one included from 'rgb.inc.php'.
+     *
+     * \param which_color_array If an array, the used as color array. If a string can
+     *        be one of 'small' or 'large'.
+     */
+    function SetRGBArray ($which_color_array)
+    {
+        if ( is_array($which_color_array) ) {           // User defined array
+            $this->rgb_array = $which_color_array;
+            return TRUE;
+        } elseif ($which_color_array == 'small') {      // Small predefined color array
+            $this->rgb_array = array(
+                'white'          => array(255, 255, 255),
+                'snow'           => array(255, 250, 250),
+                'PeachPuff'      => array(255, 218, 185),
+                'ivory'          => array(255, 255, 240),
+                'lavender'       => array(230, 230, 250),
+                'black'          => array(  0,   0,   0),
+                'DimGrey'        => array(105, 105, 105),
+                'gray'           => array(190, 190, 190),
+                'grey'           => array(190, 190, 190),
+                'navy'           => array(  0,   0, 128),
+                'SlateBlue'      => array(106,  90, 205),
+                'blue'           => array(  0,   0, 255),
+                'SkyBlue'        => array(135, 206, 235),
+                'cyan'           => array(  0, 255, 255),
+                'DarkGreen'      => array(  0, 100,   0),
+                'green'          => array(  0, 255,   0),
+                'YellowGreen'    => array(154, 205,  50),
+                'yellow'         => array(255, 255,   0),
+                'orange'         => array(255, 165,   0),
+                'gold'           => array(255, 215,   0),
+                'peru'           => array(205, 133,  63),
+                'beige'          => array(245, 245, 220),
+                'wheat'          => array(245, 222, 179),
+                'tan'            => array(210, 180, 140),
+                'brown'          => array(165,  42,  42),
+                'salmon'         => array(250, 128, 114),
+                'red'            => array(255,   0,   0),
+                'pink'           => array(255, 192, 203),
+                'maroon'         => array(176,  48,  96),
+                'magenta'        => array(255,   0, 255),
+                'violet'         => array(238, 130, 238),
+                'plum'           => array(221, 160, 221),
+                'orchid'         => array(218, 112, 214),
+                'purple'         => array(160,  32, 240),
+                'azure1'         => array(240, 255, 255),
+                'aquamarine1'    => array(127, 255, 212)
+                );
+            return TRUE;
+        } elseif ($which_color_array === 'large')  {    // Large color array
+            if (!@include('rgb.inc.php')) {
+                return $this->PrintError("SetRGBArray(): Large color map could not be loaded\n"
+                                       . "from 'rgb.inc.php'.");
+            }
+            $this->rgb_array = $ColorArray;
+        } else {                                        // Default to black and white only.
+            $this->rgb_array = array('white' => array(255, 255, 255), 'black' => array(0, 0, 0));
+        }
+
+        return TRUE;
+    }
+
+    /*!
+     * Returns an array in R, G, B format 0-255
+     *
+     *  \param color_asked array(R,G,B) or string (named color or '#AABBCC')
+     * Note: This method should be 'protected', but is called from test script(s).
+     */
+    function SetRGBColor($color_asked)
+    {
+        if (empty($color_asked)) {
+            $ret_val = array(0, 0, 0);
+        } elseif (count($color_asked) == 3 ) {    // already array of 3 rgb
+            $ret_val = $color_asked;
+        } elseif ($color_asked[0] == '#') {       // Hex RGB notation #RRGGBB
+            $ret_val = array(hexdec(substr($color_asked, 1, 2)),
+                             hexdec(substr($color_asked, 3, 2)),
+                             hexdec(substr($color_asked, 5, 2)));
+
+        } elseif (isset($this->rgb_array[$color_asked])) {  // Color by name
+            $ret_val = $this->rgb_array[$color_asked];
+        } else {
+            return $this->PrintError("SetRGBColor(): Color '$color_asked' is not valid.");
+        }
+        return $ret_val;
+    }
+
+
+    /*!
+     * Sets the colors for the data.
+     * Cases are:
+     *    SetDataColors(array(...))  : Use the supplied array as the color map.
+     *    SetDataColors(colorname)   : Use an array of just colorname as the color map.
+     *    SetDataColors() or SetDataColors(NULL) : Load default color map if no color map is already set.
+     *    SetDataColors('') or SetDataColors(False) : Load default color map (even if one is already set).
+     */
+    function SetDataColors($which_data = NULL, $which_border = NULL)
+    {
+        if (is_array($which_data)) {
+            $this->data_colors = $which_data;  // Use supplied array
+        } elseif (!empty($which_data)) {
+            $this->data_colors = array($which_data);  // Use supplied single color
+        } elseif (empty($this->data_colors) || !is_null($which_data)) {
+            $this->data_colors = $this->default_colors;  // Use default color array
+        } // Else do nothing: which_data is NULL or missing and a color array is already set.
+
+        $i = 0;
+        foreach ($this->data_colors as $col) {
+            $ndx = $this->SetIndexColor($col);
+            if (!isset($ndx))
+                return FALSE;
+            $this->ndx_data_colors[$i] = $ndx;
+            $this->ndx_data_dark_colors[$i] = $this->SetIndexDarkColor($col);
+            $i++;
+        }
+
+        // For past compatibility:
+        return $this->SetDataBorderColors($which_border);
+    } // function SetDataColors()
+
+
+    /*!
+     * Set the colors for the bars and stacked bars outlines.
+     * Argument usage is similar to SetDataColors(), except the default is just black.
+     */
+    function SetDataBorderColors($which_br = NULL)
+    {
+        if (is_array($which_br)) {
+            $this->data_border_colors = $which_br; // Use supplied array
+        } elseif (!empty($which_br)) {
+            $this->data_border_colors = array($which_br);  // Use supplied single color
+        } elseif (empty($this->data_border_colors) || !is_null($which_br)) {
+            $this->data_border_colors = array('black'); // Use default
+        } // Else do nothing: which_br is NULL or missing and a color array is already set.
+
+        $i = 0;
+        foreach($this->data_border_colors as $col) {
+            $ndx = $this->SetIndexColor($col);
+            if (!isset($ndx))
+                return FALSE;
+            $this->ndx_data_border_colors[$i] = $ndx;
+            $i++;
+        }
+        return TRUE;
+    } // function SetDataBorderColors()
+
+
+    /*!
+     * Sets the colors for the data error bars.
+     * Argument usage is the same as SetDataColors().
+     */
+    function SetErrorBarColors($which_err = NULL)
+    {
+        if (is_array($which_err)) {
+            $this->error_bar_colors = $which_err;  // Use supplied array
+        } elseif (!empty($which_err)) {
+            $this->error_bar_colors = array($which_err);  // Use supplied single color
+        } elseif (empty($this->error_bar_colors) || !is_null($which_err)) {
+            $this->error_bar_colors = $this->default_colors;  // Use default color array
+        } // Else do nothing: which_err is NULL or missing and a color array is already set.
+
+        $i = 0;
+        foreach($this->error_bar_colors as $col) {
+            $ndx = $this->SetIndexColor($col);
+            if (!isset($ndx))
+                return FALSE;
+            $this->ndx_error_bar_colors[$i] = $ndx;
+            $i++;
+        }
+        return TRUE;
+    } // function SetErrorBarColors()
+
+
+    /*!
+     * Sets the default dashed style.
+     *  \param which_style A string specifying order of colored and transparent dots,
+     *         i.e: '4-3' means 4 colored, 3 transparent;
+     *              '2-3-1-2' means 2 colored, 3 transparent, 1 colored, 2 transparent.
+     */
+    function SetDefaultDashedStyle($which_style)
+    {
+        // String: "numcol-numtrans-numcol-numtrans..."
+        $asked = explode('-', $which_style);
+
+        if (count($asked) < 2) {
+            return $this->PrintError("SetDefaultDashedStyle(): Wrong parameter '$which_style'.");
+        }
+
+        // Build the string to be eval()uated later by SetDashedStyle()
+        $this->default_dashed_style = 'array( ';
+
+        $t = 0;
+        foreach($asked as $s) {
+            if ($t % 2 == 0) {
+                $this->default_dashed_style .= str_repeat('$which_ndxcol,', $s);
+            } else {
+                $this->default_dashed_style .= str_repeat('IMG_COLOR_TRANSPARENT,', $s);
+            }
+            $t++;
+        }
+        // Remove trailing comma and add closing parenthesis
+        $this->default_dashed_style = substr($this->default_dashed_style, 0, -1);
+        $this->default_dashed_style .= ')';
+
+        return TRUE;
+    }
+
+
+    /*!
+     * Sets the style before drawing a dashed line. Defaults to $this->default_dashed_style
+     *   \param which_ndxcol Color index to be used.
+     */
+    protected function SetDashedStyle($which_ndxcol)
+    {
+        // See SetDefaultDashedStyle() to understand this.
+        eval ("\$style = $this->default_dashed_style;");
+        return imagesetstyle($this->img, $style);
+    }
+
+
+    /*!
+     * Sets line widths on a per-line basis.
+     */
+    function SetLineWidths($which_lw=NULL)
+    {
+        if (is_null($which_lw)) {
+            // Do nothing, use default value.
+        } else if (is_array($which_lw)) {
+            // Did we get an array with line widths?
+            $this->line_widths = $which_lw;
+        } else {
+            $this->line_widths = array($which_lw);
+        }
+        return TRUE;
+    }
+
+    /*!
+     *
+     */
+    function SetLineStyles($which_ls=NULL)
+    {
+        if (is_null($which_ls)) {
+            // Do nothing, use default value.
+        } else if ( is_array($which_ls)) {
+            // Did we get an array with line styles?
+            $this->line_styles = $which_ls;
+        } else {
+            $this->line_styles = ($which_ls) ? array($which_ls) : array('solid');
+        }
+        return TRUE;
+    }
+
+
+/////////////////////////////////////////////
+//////////////                 TEXT and FONTS
+/////////////////////////////////////////////
+
+
+    /*!
+     * Controls the line spacing of multi-line labels.
+     * For GD text, this is the number of pixels between lines.
+     * For TTF text, it controls line spacing in proportion to the normal
+     * spacing defined by the font.
+     */
+    function SetLineSpacing($which_spc)
+    {
+        $this->line_spacing = $which_spc;
+        return TRUE;
+    }
+
+
+    /*!
+     * Select the default font type to use.
+     *   $which_ttf : True to default to TrueType, False to default to GD (fixed) fonts.
+     * This also resets all font settings to the defaults.
+     */
+    function SetUseTTF($which_ttf)
+    {
+        $this->use_ttf = $which_ttf;
+        return $this->SetDefaultFonts();
+    }
+
+    /*!
+     * Sets the directory name to look into for TrueType fonts.
+     */
+    function SetTTFPath($which_path)
+    {
+        // Maybe someone needs really dynamic config. He'll need this:
+        // clearstatcache();
+
+        if (is_dir($which_path) && is_readable($which_path)) {
+            $this->ttf_path = $which_path;
+            return TRUE;
+        }
+        return $this->PrintError("SetTTFPath(): $which_path is not a valid path.");
+    }
+
+    /*!
+     * Sets the default TrueType font and updates all fonts to that.
+     * The default font might be a full path, or relative to the TTFPath,
+     * so let SetFont check that it exists.
+     * Side effects: Enables use of TrueType fonts as the default font type,
+     * and resets all font settings.
+     */
+    function SetDefaultTTFont($which_font)
+    {
+        $this->default_ttfont = $which_font;
+        return $this->SetUseTTF(TRUE);
+    }
+
+    /*!
+     * Sets fonts to their defaults
+     */
+    protected function SetDefaultFonts()
+    {
+        // TTF:
+        if ($this->use_ttf) {
+            return $this->SetFont('generic', '', 8)
+                && $this->SetFont('title', '', 14)
+                && $this->SetFont('legend', '', 8)
+                && $this->SetFont('x_label', '', 6)
+                && $this->SetFont('y_label', '', 6)
+                && $this->SetFont('x_title', '', 10)
+                && $this->SetFont('y_title', '', 10);
+        }
+        // Fixed GD Fonts:
+        return $this->SetFont('generic', 2)
+            && $this->SetFont('title', 5)
+            && $this->SetFont('legend', 2)
+            && $this->SetFont('x_label', 1)
+            && $this->SetFont('y_label', 1)
+            && $this->SetFont('x_title', 3)
+            && $this->SetFont('y_title', 3);
+    }
+
+    /*
+     * Select a fixed (GD) font for an element.
+     * This allows using a fixed font, even with SetUseTTF(True).
+     *    $which_elem : The element whose font is to be changed.
+     *       One of: title legend generic x_label y_label x_title y_title
+     *    $which_font : A GD font number 1-5
+     *    $which_spacing (optional) : Line spacing factor
+     */
+    function SetFontGD($which_elem, $which_font, $which_spacing = NULL)
+    {
+        if ($which_font < 1 || 5 < $which_font) {
+            return $this->PrintError(__FUNCTION__ . ': Font size must be 1, 2, 3, 4 or 5');
+        }
+        if (!$this->CheckOption($which_elem,
+                                'generic, title, legend, x_label, y_label, x_title, y_title',
+                                __FUNCTION__)) {
+            return FALSE;
+        }
+
+        # Store the font parameters: name/size, char cell height and width.
+        $this->fonts[$which_elem] = array('ttf' => FALSE,
+                                          'font' => $which_font,
+                                          'height' => ImageFontHeight($which_font),
+                                          'width' => ImageFontWidth($which_font),
+                                          'line_spacing' => $which_spacing);
+        return TRUE;
+    }
+
+    /*
+     * Select a TrueType font for an element.
+     * This allows using a TrueType font, even with SetUseTTF(False).
+     *    $which_elem : The element whose font is to be changed.
+     *       One of: title legend generic x_label y_label x_title y_title
+     *    $which_font : A TrueType font filename or pathname.
+     *    $which_size : Font point size.
+     *    $which_spacing (optional) : Line spacing factor
+     */
+    function SetFontTTF($which_elem, $which_font, $which_size = 12, $which_spacing = NULL)
+    {
+        if (!$this->CheckOption($which_elem,
+                                'generic, title, legend, x_label, y_label, x_title, y_title',
+                                __FUNCTION__)) {
+            return FALSE;
+        }
+
+        # Empty font name means use the default font.
+        if (empty($which_font))
+            $which_font = $this->default_ttfont;
+        $path = $which_font;
+
+        # First try the font name directly, if not then try with path.
+        if (!is_file($path) || !is_readable($path)) {
+            $path = $this->ttf_path . DIRECTORY_SEPARATOR . $which_font;
+            if (!is_file($path) || !is_readable($path)) {
+                return $this->PrintError(__FUNCTION__ . ": Can't find TrueType font $which_font");
+            }
+        }
+
+        # Calculate the font height and inherent line spacing. TrueType fonts have this information
+        # internally, but PHP/GD has no way to directly access it. So get the bounding box size of
+        # an upper-case character without descenders, and the baseline-to-baseline height.
+        # Note: In practice, $which_size = $height, maybe +/-1 . But which_size is in points,
+        # and height is in pixels, and someday GD may be able to tell the difference.
+        # The character width is saved too, but not used by the normal text drawing routines - it
+        # isn't necessarily a fixed-space font. It is used in DrawLegend.
+        $bbox = ImageTTFBBox($which_size, 0, $path, "E");
+        $height = $bbox[1] - $bbox[5];
+        $width = $bbox[2] - $bbox[0];
+        $bbox = ImageTTFBBox($which_size, 0, $path, "E\nE");
+        $spacing = $bbox[1] - $bbox[5] - 2 * $height;
+
+        # Store the font parameters:
+        $this->fonts[$which_elem] = array('ttf' => TRUE,
+                                          'font' => $path,
+                                          'size' => $which_size,
+                                          'height' => $height,
+                                          'width' => $width,
+                                          'spacing' => $spacing,
+                                          'line_spacing' => $which_spacing);
+        return TRUE;
+    }
+
+
+    /*
+     * Select Fixed/TrueType font for an element. Which type of font is
+     * selected depends on the $use_ttf class variable (see SetUseTTF()).
+     * Before PHPlot supported mixing font types, only this function and
+     * SetUseTTF were available to select an overall font type, but now
+     * SetFontGD() and SetFontTTF() can be used for mixing font types.
+     *    $which_elem : The element whose font is to be changed.
+     *       One of: title legend generic x_label y_label x_title y_title
+     *    $which_font : A number 1-5 for fixed fonts, or a TrueType font.
+     *    $which_size : Ignored for Fixed fonts, point size for TrueType.
+     *    $which_spacing (optional) : Line spacing factor
+     */
+    function SetFont($which_elem, $which_font, $which_size = 12, $line_spacing = NULL)
+    {
+        if ($this->use_ttf)
+            return $this->SetFontTTF($which_elem, $which_font, $which_size, $line_spacing);
+        return $this->SetFontGD($which_elem, $which_font, $line_spacing);
+    }
+
+    /*
+     * Return the inter-line spacing for a font.
+     * This is an internal function, used by ProcessText* and DrawLegend.
+     *   $font : A font array variable.
+     * Returns: Spacing, in pixels, between text lines.
+     */
+    protected function GetLineSpacing($font)
+    {
+        # Use the per-font line spacing preference, if set, else the global value:
+        if (isset($font['line_spacing']))
+            $line_spacing = $font['line_spacing'];
+        else
+            $line_spacing = $this->line_spacing;
+
+        # For GD fonts, that is the spacing in pixels.
+        # For TTF, adjust based on the 'natural' font spacing (see SetFontTTF):
+        if ($font['ttf']) {
+            $line_spacing = (int)($line_spacing * $font['spacing'] / 6.0);
+        }
+        return $line_spacing;
+    }
+
+    /*!
+     * Text drawing and sizing functions:
+     * ProcessText is meant for use only by DrawText and SizeText.
+     *    ProcessText(True, ...)  - Draw a block of text
+     *    ProcessText(False, ...) - Just return ($width, $height) of
+     *       the orthogonal bounding box containing the text.
+     * ProcessText is further split into separate functions for GD and TTF
+     * text, due to the size of the code.
+     *
+     * Horizontal and vertical alignment are relative to the drawing. That is:
+     * vertical text (90 deg) gets centered along Y position with
+     * v_align = 'center', and adjusted to the right of X position with
+     * h_align = 'right'.  Another way to look at this is to say
+     * that text rotation happens first, then alignment.
+     *
+     * Original multiple lines code submitted by Remi Ricard.
+     * Original vertical code submitted by Marlin Viss.
+     *
+     * Text routines rewritten by ljb to fix alignment and position problems.
+     * Here is my explanation and notes. More information and pictures will be
+     * placed in the PHPlot Reference Manual.
+     *
+     *    + Process TTF text one line at a time, not as a block. (See below)
+     *    + Flipped top vs bottom vertical alignment. The usual interpretation
+     *  is: bottom align means bottom of the text is at the specified Y
+     *  coordinate. For some reason, PHPlot did left/right the correct way,
+     *  but had top/bottom reversed. I fixed it, and left the default valign
+     *  argument as bottom, but the meaning of the default value changed.
+     *
+     *    For GD font text, only single-line text is handled by GD, and the
+     *  basepoint is the upper left corner of each text line.
+     *    For TTF text, multi-line text could be handled by GD, with the text
+     *  basepoint at the lower left corner of the first line of text.
+     *  (Behavior of TTF drawing routines on multi-line text is not documented.)
+     *  But you cannot do left/center/right alignment on each line that way,
+     *  or proper line spacing.
+     *    Therefore, for either text type, we have to break up the text into
+     *  lines and position each line independently.
+     *
+     *    There are 9 alignment modes: Horizontal = left, center, or right, and
+     *  Vertical = top, center, or bottom. Alignment is interpreted relative to
+     *  the image, not as the text is read. This makes sense when you consider
+     *  for example X axis labels. They need to be centered below the marks
+     *  (center, top alignment) regardless of the text angle.
+     *  'Bottom' alignment really means baseline alignment.
+     *
+     *    GD font text is supported (by libgd) at 0 degrees and 90 degrees only.
+     *  Multi-line or single line text works with any of the 9 alignment modes.
+     *
+     *    TTF text can be at any angle. The 9 alignment modes work for all angles,
+     *  but the results might not be what you expect for multi-line text. See
+     *  the PHPlot Reference Manual for pictures and details. In short, alignment
+     *  applies to the orthogonal (aligned with X and Y axes) bounding box that
+     *  contains the text, and to each line in the multi-line text box. Since
+     *  alignment is relative to the image, 45 degree multi-line text aligns
+     *  differently from 46 degree text.
+     *
+     *    Note that PHPlot allows multi-line text for the 3 titles, and they
+     *  are only drawn at 0 degrees (main and X titles) or 90 degrees (Y title).
+     *  Data labels can also be multi-line, and they can be drawn at any angle.
+     *  -ljb 2007-11-03
+     *
+     */
+
+    /*
+     * ProcessTextGD() - Draw or size GD fixed-font text.
+     * This is intended for use only by ProcessText().
+     *    $draw_it : True to draw the text, False to just return the orthogonal width and height.
+     *    $font : PHPlot font array (with 'ttf' = False) - see SetFontGD()
+     *    $angle : Text angle in degrees. GD only supports 0 and 90. We treat >= 45 as 90, else 0.
+     *    $x, $y : Reference point for the text (ignored if !$draw_it)
+     *    $color : GD color index to use for drawing the text (ignored if !$draw_it)
+     *    $text : The text to draw or size. Put a newline between lines.
+     *    $h_factor : Horizontal alignment factor: 0(left), .5(center), or 1(right) (ignored if !$draw_it)
+     *    $v_factor : Vertical alignment factor: 0(top), .5(center), or 1(bottom) (ignored if !$draw_it)
+     * Returns: True, if drawing text, or an array of ($width, $height) if not.
+     */
+    protected function ProcessTextGD($draw_it, $font, $angle, $x, $y, $color, $text, $h_factor, $v_factor)
+    {
+        # Extract font parameters:
+        $font_number = $font['font'];
+        $font_width = $font['width'];
+        $font_height = $font['height'];
+        $line_spacing = $this->GetLineSpacing($font);
+
+        # Break up the text into lines, trim whitespace, find longest line.
+        # Save the lines and length for drawing below.
+        $longest = 0;
+        foreach (explode("\n", $text) as $each_line) {
+            $lines[] = $line = trim($each_line);
+            $line_lens[] = $line_len = strlen($line);
+            if ($line_len > $longest) $longest = $line_len;
+        }
+        $n_lines = count($lines);
+
+        # Width, height are based on font size and longest line, line count respectively.
+        # These are relative to the text angle.
+        $total_width = $longest * $font_width;
+        $total_height = $n_lines * $font_height + ($n_lines - 1) * $line_spacing;
+
+        if (!$draw_it) {
+            if ($angle < 45) return array($total_width, $total_height);
+            return array($total_height, $total_width);
+        }
+
+        $interline_step = $font_height + $line_spacing; // Line-to-line step
+
+        if ($angle >= 45) {
+            // Vertical text (90 degrees):
+            // (Remember the alignment convention with vertical text)
+            // For 90 degree text, alignment factors change like this:
+            $temp = $v_factor;
+            $v_factor = $h_factor;
+            $h_factor = 1 - $temp;
+
+            $draw_func = 'ImageStringUp';
+
+            // Rotation matrix "R" for 90 degrees (with Y pointing down):
+            $r00 = 0;  $r01 = 1;
+            $r10 = -1; $r11 = 0;
+
+        } else {
+            // Horizontal text (0 degrees):
+            $draw_func = 'ImageString';
+
+            // Rotation matrix "R" for 0 degrees:
+            $r00 = 1; $r01 = 0;
+            $r10 = 0; $r11 = 1;
+        }
+
+        // Adjust for vertical alignment (horizontal text) or horizontal alignment (vertical text):
+        $factor = (int)($total_height * $v_factor);
+        $xpos = $x - $r01 * $factor;
+        $ypos = $y - $r11 * $factor;
+
+        # Debug callback provides the bounding box:
+        if ($this->GetCallback('debug_textbox')) {
+            if ($angle >= 45) {
+                $bbox_width  = $total_height;
+                $bbox_height = $total_width;
+                $px = $xpos;
+                $py = $ypos - (1 - $h_factor) * $total_width;
+            } else {
+                $bbox_width  = $total_width;
+                $bbox_height = $total_height;
+                $px = $xpos - $h_factor * $total_width;
+                $py = $ypos;
+            }
+            $this->DoCallback('debug_textbox', $px, $py, $bbox_width, $bbox_height);
+        }
+
+        for ($i = 0; $i < $n_lines; $i++) {
+
+            // Adjust for alignment of this line within the text block:
+            $factor = (int)($line_lens[$i] * $font_width * $h_factor);
+            $x = $xpos - $r00 * $factor;
+            $y = $ypos - $r10 * $factor;
+
+            // Call ImageString or ImageStringUp:
+            $draw_func($this->img, $font_number, $x, $y, $lines[$i], $color);
+
+            // Step to the next line of text. This is a rotation of (x=0, y=interline_spacing)
+            $xpos += $r01 * $interline_step;
+            $ypos += $r11 * $interline_step;
+        }
+        return TRUE;
+    }
+
+
+    /*
+     * ProcessTextTTF() - Draw or size TTF text.
+     * This is intended for use only by ProcessText().
+     *    $draw_it : True to draw the text, False to just return the orthogonal width and height.
+     *    $font : PHPlot font array (with 'ttf' = True) - see SetFontTTF()
+     *    $angle : Text angle in degrees.
+     *    $x, $y : Reference point for the text (ignored if !$draw_it)
+     *    $color : GD color index to use for drawing the text (ignored if !$draw_it)
+     *    $text : The text to draw or size. Put a newline between lines.
+     *    $h_factor : Horizontal alignment factor: 0(left), .5(center), or 1(right) (ignored if !$draw_it)
+     *    $v_factor : Vertical alignment factor: 0(top), .5(center), or 1(bottom) (ignored if !$draw_it)
+     * Returns: True, if drawing text, or an array of ($width, $height) if not.
+     */
+    protected function ProcessTextTTF($draw_it, $font, $angle, $x, $y, $color, $text, $h_factor, $v_factor)
+    {
+        # Extract font parameters (see SetFontTTF):
+        $font_file = $font['font'];
+        $font_size = $font['size'];
+        $font_height = $font['height'];
+        $line_spacing = $this->GetLineSpacing($font);
+
+        # Break up the text into lines, trim whitespace.
+        # Calculate the total width and height of the text box at 0 degrees.
+        # Save the trimmed lines and their widths for later when drawing.
+        # To get uniform spacing, don't use the actual line heights.
+        # Total height = Font-specific line heights plus inter-line spacing.
+        # Total width = width of widest line.
+        # Last Line Descent is the offset from the bottom to the text baseline.
+        # Note: For some reason, ImageTTFBBox uses (-1,-1) as the reference point.
+        #   So 1+bbox[1] is the baseline to bottom distance.
+        $total_width = 0;
+        $lastline_descent = 0;
+        foreach (explode("\n", $text) as $each_line) {
+            $lines[] = $line = trim($each_line);
+            $bbox = ImageTTFBBox($font_size, 0, $font_file, $line);
+            $line_widths[] = $width = $bbox[2] - $bbox[0];
+            if ($width > $total_width) $total_width = $width;
+            $lastline_descent = 1 + $bbox[1];
+        }
+        $n_lines = count($lines);
+        $total_height = $n_lines * $font_height + ($n_lines - 1) * $line_spacing;
+
+        # Calculate the rotation matrix for the text's angle. Remember that GD points Y down,
+        # so the sin() terms change sign.
+        $theta = deg2rad($angle);
+        $cos_t = cos($theta);
+        $sin_t = sin($theta);
+        $r00 = $cos_t;    $r01 = $sin_t;
+        $r10 = -$sin_t;   $r11 = $cos_t;
+
+        # Make a bounding box of the right size, with upper left corner at (0,0).
+        # By convention, the point order is: LL, LR, UR, UL.
+        # Note this is still working with the text at 0 degrees.
+        # When sizing text (SizeText), use the overall size with descenders.
+        #   This tells the caller how much room to leave for the text.
+        # When drawing text (DrawText), use the size without descenders - that
+        #   is, down to the baseline. This is for accurate positioning.
+        $b[0] = 0;
+        if ($draw_it) {
+            $b[1] = $total_height;
+        } else {
+            $b[1] = $total_height + $lastline_descent;
+        }
+        $b[2] = $total_width;  $b[3] = $b[1];
+        $b[4] = $total_width;  $b[5] = 0;
+        $b[6] = 0;             $b[7] = 0;
+
+        # Rotate the bounding box, then offset to the reference point:
+        for ($i = 0; $i < 8; $i += 2) {
+            $x_b = $b[$i];
+            $y_b = $b[$i+1];
+            $c[$i]   = $x + $r00 * $x_b + $r01 * $y_b;
+            $c[$i+1] = $y + $r10 * $x_b + $r11 * $y_b;
+        }
+
+        # Get an orthogonal (aligned with X and Y axes) bounding box around it, by
+        # finding the min and max X and Y:
+        $bbox_ref_x = $bbox_max_x = $c[0];
+        $bbox_ref_y = $bbox_max_y = $c[1];
+        for ($i = 2; $i < 8; $i += 2) {
+            $x_b = $c[$i];
+            if ($x_b < $bbox_ref_x) $bbox_ref_x = $x_b;
+            elseif ($bbox_max_x < $x_b) $bbox_max_x = $x_b;
+            $y_b = $c[$i+1];
+            if ($y_b < $bbox_ref_y) $bbox_ref_y = $y_b;
+            elseif ($bbox_max_y < $y_b) $bbox_max_y = $y_b;
+        }
+        $bbox_width = $bbox_max_x - $bbox_ref_x;
+        $bbox_height = $bbox_max_y - $bbox_ref_y;
+
+        if (!$draw_it) {
+            # Return the bounding box, rounded up (so it always contains the text):
+            return array((int)ceil($bbox_width), (int)ceil($bbox_height));
+        }
+
+        $interline_step = $font_height + $line_spacing; // Line-to-line step
+
+        # Calculate the offsets from the supplied reference point to the
+        # upper-left corner of the text.
+        # Start at the reference point at the upper left corner of the bounding
+        # box (bbox_ref_x, bbox_ref_y) then adjust it for the 9 point alignment.
+        # h,v_factor are 0,0 for top,left, .5,.5 for center,center, 1,1 for bottom,right.
+        #    $off_x = $bbox_ref_x + $bbox_width * $h_factor - $x;
+        #    $off_y = $bbox_ref_y + $bbox_height * $v_factor - $y;
+        # Then use that offset to calculate back to the supplied reference point x, y
+        # to get the text base point.
+        #    $qx = $x - $off_x;
+        #    $qy = $y - $off_y;
+        # Reduces to:
+        $qx = 2 * $x - $bbox_ref_x - $bbox_width * $h_factor;
+        $qy = 2 * $y - $bbox_ref_y - $bbox_height * $v_factor;
+
+        # Check for debug callback. Don't calculate bounding box unless it is wanted.
+        if ($this->GetCallback('debug_textbox')) {
+            # Calculate the orthogonal bounding box coordinates for debug testing.
+
+            # qx, qy is upper left corner relative to the text.
+            # Calculate px,py: upper left corner (absolute) of the bounding box.
+            # There are 4 equation sets for this, depending on the quadrant:
+            if ($sin_t > 0) {
+                if ($cos_t > 0) {
+                    # Quadrant: 0d - 90d:
+                    $px = $qx; $py = $qy - $total_width * $sin_t;
+                } else {
+                    # Quadrant: 90d - 180d:
+                   $px = $qx + $total_width * $cos_t; $py = $qy - $bbox_height;
+                }
+            } else {
+                if ($cos_t < 0) {
+                    # Quadrant: 180d - 270d:
+                    $px = $qx - $bbox_width; $py = $qy + $total_height * $cos_t;
+                } else {
+                    # Quadrant: 270d - 360d:
+                    $px = $qx + $total_height * $sin_t; $py = $qy;
+                }
+            }
+            $this->DoCallback('debug_textbox', $px, $py, $bbox_width, $bbox_height);
+        }
+
+        # Since alignment is applied after rotation, which parameter is used
+        # to control alignment of each line within the text box varies with
+        # the angle.
+        #   Angle (degrees):       Line alignment controlled by:
+        #  -45 < angle <= 45          h_align
+        #   45 < angle <= 135         reversed v_align
+        #  135 < angle <= 225         reversed h_align
+        #  225 < angle <= 315         v_align
+        if ($cos_t >= $sin_t) {
+            if ($cos_t >= -$sin_t) $line_align_factor = $h_factor;
+            else $line_align_factor = $v_factor;
+        } else {
+            if ($cos_t >= -$sin_t) $line_align_factor = 1-$v_factor;
+            else $line_align_factor = 1-$h_factor;
+        }
+
+        # Now we have the start point, spacing and in-line alignment factor.
+        # We are finally ready to start drawing the text, line by line.
+        for ($i = 0; $i < $n_lines; $i++) {
+
+            # For drawing TTF text, the reference point is the left edge of the
+            # text baseline (not the lower left corner of the bounding box).
+            # The following also adjusts for horizontal (relative to
+            # the text) alignment of the current line within the box.
+            # What is happening is rotation of this vector by the text angle:
+            #    (x = (total_width - line_width) * factor, y = font_height)
+
+            $width_factor = ($total_width - $line_widths[$i]) * $line_align_factor;
+            $rx = $qx + $r00 * $width_factor + $r01 * $font_height;
+            $ry = $qy + $r10 * $width_factor + $r11 * $font_height;
+
+            # Finally, draw the text:
+            ImageTTFText($this->img, $font_size, $angle, $rx, $ry, $color, $font_file, $lines[$i]);
+
+            # Step to position of next line.
+            # This is a rotation of (x=0,y=height+line_spacing) by $angle:
+            $qx += $r01 * $interline_step;
+            $qy += $r11 * $interline_step;
+        }
+        return True;
+    }
+
+    /*
+     * ProcessText() - Wrapper for ProcessTextTTF() and ProcessTextGD(). See notes above.
+     * This is intended for use from within PHPlot only, and only by DrawText() and SizeText().
+     *    $draw_it : True to draw the text, False to just return the orthogonal width and height.
+     *    $font : PHPlot font array, or NULL or empty string to use 'generic'
+     *    $angle : Text angle in degrees
+     *    $x, $y : Reference point for the text (ignored if !$draw_it)
+     *    $color : GD color index to use for drawing the text (ignored if !$draw_it)
+     *    $text : The text to draw or size. Put a newline between lines.
+     *    $halign : Horizontal alignment: left, center, or right (ignored if !$draw_it)
+     *    $valign : Vertical alignment: top, center, or bottom (ignored if !$draw_it)
+     *      Note: Alignment is relative to the image, not the text.
+     * Returns: True, if drawing text, or an array of ($width, $height) if not.
+     */
+    protected function ProcessText($draw_it, $font, $angle, $x, $y, $color, $text, $halign, $valign)
+    {
+        # Empty text case:
+        if ($text === '') {
+            if ($draw_it) return TRUE;
+            return array(0, 0);
+        }
+
+        # Calculate width and height offset factors using the alignment args:
+        if ($valign == 'top') $v_factor = 0;
+        elseif ($valign == 'center') $v_factor = 0.5;
+        else $v_factor = 1.0; # 'bottom'
+        if ($halign == 'left') $h_factor = 0;
+        elseif ($halign == 'center') $h_factor = 0.5;
+        else $h_factor = 1.0; # 'right'
+
+        # Apply a default font. This is mostly for external (callback) users.
+        if (empty($font)) $font = $this->fonts['generic'];
+
+        if ($font['ttf']) {
+            return $this->ProcessTextTTF($draw_it, $font, $angle, $x, $y, $color, $text, $h_factor, $v_factor);
+        }
+        return $this->ProcessTextGD($draw_it, $font, $angle, $x, $y, $color, $text, $h_factor, $v_factor);
+    }
+
+
+    /*
+     * Draws a block of text. See comments above before ProcessText().
+     *    $which_font : PHPlot font array, or NULL or empty string to use 'generic'
+     *    $which_angle : Text angle in degrees
+     *    $which_xpos, $which_ypos: Reference point for the text
+     *    $which_color : GD color index to use for drawing the text
+     *    $which_text :  The text to draw, with newlines (\n) between lines.
+     *    $which_halign : Horizontal (relative to the image) alignment: left, center, or right.
+     *    $which_valign : Vertical (relative to the image) alignment: top, center, or bottom.
+     */
+    function DrawText($which_font, $which_angle, $which_xpos, $which_ypos, $which_color, $which_text,
+                      $which_halign = 'left', $which_valign = 'bottom')
+    {
+        return $this->ProcessText(True,
+                           $which_font, $which_angle, $which_xpos, $which_ypos,
+                           $which_color, $which_text, $which_halign, $which_valign);
+    }
+
+    /*
+     * Returns the size of block of text. This is the orthogonal width and height of a bounding
+     * box aligned with the X and Y axes of the text. Only for angle=0 is this the actual
+     * width and height of the text block, but for any angle it is the amount of space needed
+     * to contain the text.
+     *    $which_font : PHPlot font array, or NULL or empty string to use 'generic'
+     *    $which_angle : Text angle in degrees
+     *    $which_text :  The text to draw, with newlines (\n) between lines.
+     * Returns a two element array with: $width, $height.
+     * This is just a wrapper for ProcessText() - see above.
+     */
+    function SizeText($which_font, $which_angle, $which_text)
+    {
+        // Color, position, and alignment are not used when calculating the size.
+        return $this->ProcessText(False,
+                           $which_font, $which_angle, 0, 0, 1, $which_text, '', '');
+    }
+
+
+/////////////////////////////////////////////
+///////////            INPUT / OUTPUT CONTROL
+/////////////////////////////////////////////
+
+    /*!
+     * Sets output file format.
+     */
+    function SetFileFormat($format)
+    {
+        $asked = $this->CheckOption($format, 'jpg, png, gif, wbmp', __FUNCTION__);
+        if (!$asked) return False;
+        switch ($asked) {
+        case 'jpg':
+            $format_test = IMG_JPG;
+            break;
+        case 'png':
+            $format_test = IMG_PNG;
+            break;
+        case 'gif':
+            $format_test = IMG_GIF;
+            break;
+        case 'wbmp':
+            $format_test = IMG_WBMP;
+            break;
+        }
+        if (!(imagetypes() & $format_test)) {
+            return $this->PrintError("SetFileFormat(): File format '$format' not supported");
+        }
+        $this->file_format = $asked;
+        return TRUE;
+    }
+
+
+    /*!
+     * Selects an input file to be used as graph background and scales or tiles this image
+     * to fit the sizes.
+     *  \param input_file string Path to the file to be used (jpeg, png and gif accepted)
+     *  \param mode       string 'centeredtile', 'tile', 'scale' (the image to the graph's size)
+     */
+    function SetBgImage($input_file, $mode='centeredtile')
+    {
+        $this->bgmode = $this->CheckOption($mode, 'tile, centeredtile, scale', __FUNCTION__);
+        $this->bgimg  = $input_file;
+        return (boolean)$this->bgmode;
+    }
+
+    /*!
+     * Selects an input file to be used as plot area background and scales or tiles this image
+     * to fit the sizes.
+     *  \param input_file string Path to the file to be used (jpeg, png and gif accepted)
+     *  \param mode       string 'centeredtile', 'tile', 'scale' (the image to the graph's size)
+     */
+    function SetPlotAreaBgImage($input_file, $mode='tile')
+    {
+        $this->plotbgmode = $this->CheckOption($mode, 'tile, centeredtile, scale', __FUNCTION__);
+        $this->plotbgimg  = $input_file;
+        return (boolean)$this->plotbgmode;
+    }
+
+
+    /*!
+     * Sets the name of the file to be used as output file.
+     */
+    function SetOutputFile($which_output_file)
+    {
+        $this->output_file = $which_output_file;
+        return TRUE;
+    }
+
+    /*!
+     * Sets the output image as 'inline', that is: no Content-Type headers are sent
+     * to the browser. Needed if you want to embed the images.
+     */
+    function SetIsInline($which_ii)
+    {
+        $this->is_inline = (bool)$which_ii;
+        return TRUE;
+    }
+
+
+    /*!
+     * Performs the actual outputting of the generated graph.
+     */
+    function PrintImage()
+    {
+        // Browser cache stuff submitted by Thiemo Nagel
+        if ( (! $this->browser_cache) && (! $this->is_inline)) {
+            header('Expires: Mon, 26 Jul 1997 05:00:00 GMT');
+            header('Last-Modified: ' . gmdate('D, d M Y H:i:s') . 'GMT');
+            header('Cache-Control: no-cache, must-revalidate');
+            header('Pragma: no-cache');
+        }
+
+        switch($this->file_format) {
+        case 'png':
+            if (! $this->is_inline) {
+                Header('Content-type: image/png');
+            }
+            if ($this->is_inline && $this->output_file != '') {
+                ImagePng($this->img, $this->output_file);
+            } else {
+                ImagePng($this->img);
+            }
+            break;
+        case 'jpg':
+            if (! $this->is_inline) {
+                Header('Content-type: image/jpeg');
+            }
+            if ($this->is_inline && $this->output_file != '') {
+                ImageJPEG($this->img, $this->output_file);
+            } else {
+                ImageJPEG($this->img);
+            }
+            break;
+        case 'gif':
+            if (! $this->is_inline) {
+                Header('Content-type: image/gif');
+            }
+            if ($this->is_inline && $this->output_file != '') {
+                ImageGIF($this->img, $this->output_file);
+            } else {
+                ImageGIF($this->img);
+            }
+
+            break;
+        case 'wbmp':        // wireless bitmap, 2 bit.
+            if (! $this->is_inline) {
+                Header('Content-type: image/wbmp');
+            }
+            if ($this->is_inline && $this->output_file != '') {
+                ImageWBMP($this->img, $this->output_file);
+            } else {
+                ImageWBMP($this->img);
+            }
+
+            break;
+        default:
+            return $this->PrintError('PrintImage(): Please select an image type!');
+        }
+        return TRUE;
+    }
+
+    /*!
+     *  Error handling for 'fatal' errors:
+     *   $error_message       Text of the error message
+     *  Standard output from PHPlot is expected to be an image file, such as
+     *  when handling an <img> tag browser request. So it is not permitted to
+     *  output text to standard output. (You should have display_errors=off)
+     *  Here is how PHPlot handles fatal errors:
+     *    + Write the error message into an image, and output the image.
+     *    + If no image can be output, write nothing and produce an HTTP
+     *      error header.
+     *    + Trigger a user-level error containing the error message.
+     *      If no error handler was set up, the script will log the
+     *      error and exit with non-zero status.
+     *
+     *  PrintError() and DrawError() are now equivalent. Both are provided for
+     *  compatibility. (In earlier releases, PrintError sent the message to
+     *  stdout only, and DrawError sent it in an image only.)
+     *
+     *  This function does not return, unless the calling script has set up
+     *  an error handler which does not exit. In that case, PrintError will
+     *  return False. But not all of PHPlot will handle this correctly, so
+     *  it is probably a bad idea for an error handler to return.
+     */
+    protected function PrintError($error_message)
+    {
+        // Be sure not to loop recursively, e.g. PrintError - PrintImage - PrintError.
+        if (isset($this->in_error)) return FALSE;
+        $this->in_error = TRUE;
+
+        // Output an image containing the error message:
+        if (!empty($this->img)) {
+            $ypos = $this->image_height/2;
+            $xpos = $this->image_width/2;
+            $bgcolor = ImageColorResolve($this->img, 255, 255, 255);
+            $fgcolor = ImageColorResolve($this->img, 0, 0, 0);
+            ImageFilledRectangle($this->img, 0, 0, $this->image_width, $this->image_height, $bgcolor);
+
+            // Switch to built-in fonts, in case of error with TrueType fonts:
+            $this->SetUseTTF(FALSE);
+
+            $this->DrawText($this->fonts['generic'], 0, $xpos, $ypos, $fgcolor,
+                            wordwrap($error_message), 'center', 'center');
+
+            $this->PrintImage();
+        } elseif (! $this->is_inline) {
+            Header('HTTP/1.0 500 Internal Server Error');
+        }
+        trigger_error($error_message, E_USER_ERROR);
+        unset($this->in_error);
+        return FALSE;  # In case error handler returns, rather than doing exit().
+    }
+
+    /*!
+     * Display an error message and exit.
+     * This is provided for backward compatibility only. Use PrintError() instead.
+     *   $error_message       Text of the error message
+     *   $where_x, $where_y   Ignored, provided for compatibility.
+     */
+    protected function DrawError($error_message, $where_x = NULL, $where_y = NULL)
+    {
+        return $this->PrintError($error_message);
+    }
+
+/////////////////////////////////////////////
+///////////                            LABELS
+/////////////////////////////////////////////
+
+
+    /*!
+     * Sets position for X labels following data points.
+     */
+    function SetXDataLabelPos($which_xdlp)
+    {
+        $which_xdlp = $this->CheckOption($which_xdlp, 'plotdown, plotup, both, xaxis, all, none',
+                                         __FUNCTION__);
+        if (!$which_xdlp) return FALSE;
+        $this->x_data_label_pos = $which_xdlp;
+
+        return TRUE;
+    }
+
+    /*!
+     * Sets position for Y labels near data points.
+     * For past compatibility we accept plotleft, ...but pass it to SetTickLabelPos
+     * eventually to specify how far up/down or left/right of the data point
+     */
+    function SetYDataLabelPos($which_ydlp, $which_distance_from_point=0)
+    {
+        $which_ydlp = $this->CheckOption($which_ydlp, 'plotleft, plotright, both, yaxis, all, plotin, none',
+                                          __FUNCTION__);
+        if (!$which_ydlp) return FALSE;
+        $this->y_data_label_pos = $which_ydlp;
+        //This bit in SetYDataLabelPos about plotleft is for those who were
+        //using this function to set SetYTickLabelPos.
+        if ( ($which_ydlp == 'plotleft') || ($which_ydlp == 'plotright') ||
+             ($which_ydlp == 'both') || ($which_ydlp == 'yaxis') ) {
+
+            //Call sety_TICK_labelpos instead of sety_DATA_labelpos
+            $this->SetYTickLabelPos($which_ydlp);
+
+        } elseif ($which_ydlp != 'none') {
+            //right now its plotin or none
+            $this->y_data_label_pos = 'plotin';
+        }
+
+        return TRUE;
+    }
+
+
+    /*!
+     * Sets position for X labels following ticks (hence grid lines)
+     */
+    function SetXTickLabelPos($which_xtlp)
+    {
+        $which_xtlp = $this->CheckOption($which_xtlp, 'plotdown, plotup, both, xaxis, all, none',
+                                         __FUNCTION__);
+        if (!$which_xtlp) return FALSE;
+        $this->x_tick_label_pos = $which_xtlp;
+
+        return TRUE;
+    }
+
+    /*!
+     * Sets position for Y labels following ticks (hence grid lines)
+     */
+    function SetYTickLabelPos($which_ytlp)
+    {
+        $this->y_tick_label_pos = $this->CheckOption($which_ytlp, 'plotleft, plotright, both, yaxis, all, none',
+                                                      __FUNCTION__);
+        return (boolean)$this->y_tick_label_pos;
+    }
+
+    /*!
+     * Sets type for tick and data labels on X or Y axis. This is meant for use by
+     * SetXLabelType and SetYLabelType, but can also be called directly.
+     *    $mode  : 'x', 'y', 'xd', or 'yd' - which type of label to configure.
+     *        'x' and 'y' set the type for tick labels, and the default type for data labels
+     *        if they are not separately configured. 'xd' and 'yd' set the type for data labels.
+     *    $args  : Variable arguments, passed as an array.
+     *       [0] = $type (required) : Label type. 'data', 'time', 'printf', or 'custom'.
+     *     For type 'data':
+     *       [1] = $precision (optional). Numeric precision. Can also be set by SetPrecision[XY]().
+     *       [2] = $prefix (optional) - prefix string for labels.
+     *       [3] = $suffix (optional) - suffix string for labels. This replaces data_units_text.
+     *     For type 'time':
+     *       [1] = $format for strftime (optional). Can also be set by Set[XY]TimeFormat().
+     *     For type 'printf':
+     *       [1] = $format (optional) for sprintf.
+     *     For type 'custom':
+     *       [1] = $callback (required) - Custom function or array of (instance,method) to call.
+     *       [2] = $argument (optional) - Pass-through argument for the formatting function.
+     */
+    protected function SetLabelType($mode, $args)
+    {
+        if (!$this->CheckOption($mode, 'x, y, xd, yd', __FUNCTION__))
+            return FALSE;
+
+        $type = isset($args[0]) ? $args[0] : '';
+        $format =& $this->label_format[$mode];  // Shorthand reference to format storage variables
+        switch ($type) {
+        case 'data':
+            if (isset($args[1]))
+                $format['precision'] = $args[1];
+            elseif (!isset($format['precision']))
+                $format['precision'] = 1;
+            $format['prefix'] = isset($args[2]) ? $args[2] : '';
+            $format['suffix'] = isset($args[3]) ? $args[3] : '';
+            break;
+
+        case 'time':
+            if (isset($args[1]))
+                $format['time_format'] = $args[1];
+            elseif (!isset($format['time_format']))
+                $format['time_format'] = '%H:%M:%S';
+            break;
+
+        case 'printf':
+            if (isset($args[1]))
+                $format['printf_format'] = $args[1];
+            elseif (!isset($format['printf_format']))
+                $format['printf_format'] = '%e';
+            break;
+
+        case 'custom':
+            if (isset($args[1])) {
+                $format['custom_callback'] = $args[1];
+                $format['custom_arg'] = isset($args[2]) ? $args[2] : NULL;
+            } else {
+                $type = ''; // Error, 'custom' without a function, set to no-format mode.
+            }
+            break;
 
         case '':
         case 'title':   // Retained for backwards compatibility?
